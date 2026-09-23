@@ -1,47 +1,144 @@
-# Proyecto 2 — base inicial de diagnóstico
 
-Esta carpeta contiene el juego de reflejos, el assembler propio y las pruebas. El juego está validado en simulación y compilado; la prueba física del juego y el informe final están pendientes.
+# Proyecto 2 — Juego de reflejos en FPGA
 
-Origen: https://github.com/nic0villegasc/pochoco_soc
-Revisión: 33e8b5ae78faad7a9a36431d5ee8cf145e8573ec
+Proyecto desarrollado para la asignatura Arquitectura de Computadores de la Universidad de los Andes. Consiste en un juego de reflejos implementado sobre Pochoco SoC, utilizando el procesador Espino y una FPGA Lattice iCE40 HX1K Go Board.
 
-## Prueba inicial
+El juego, su contador de tiempo y sus principales funcionalidades fueron verificados físicamente en la FPGA.
 
-`make build` genera el archivo de programación sin tocar la placa.
-`iceprog -t` comprueba acceso al programador y lectura del identificador de flash.
-`make program` programa el ejemplo original que copia el estado de los botones a los LEDs.
+## 1. Proyecto original
 
-`make assemble` regenera `sw/buttons_leds.hex` con nuestro assembler en Python. `make build` también lo regenera si cambia el assembly o el assembler. `make test` ejecuta las pruebas. La sintaxis, los límites y ejemplos están en `docs/assembler.md`. Los otros ejemplos originales se conservan como referencia y pueden usar sintaxis fuera del subconjunto admitido.
+El desarrollo utiliza como base Pochoco SoC:
 
-## Cambios de preparación
+https://github.com/nic0villegasc/pochoco_soc
 
-- Módulo `board_test_top` para seleccionar explícitamente la imagen del ejemplo.
-- Makefile con construcción y programación separadas, rutas desde la raíz y dependencia del archivo hexadecimal.
-- Restricciones UART quitadas porque el SoC no expone esos puertos.
-- RTL original del procesador sin modificaciones.
+Revisión original: `33e8b5ae78faad7a9a36431d5ee8cf145e8573ec`
 
-## Hallazgos confirmados
+Se conserva el RTL original del procesador Espino. El proyecto incorpora periféricos, programas Assembly, un ensamblador propio en Python y pruebas para implementar el juego de reflejos.
 
-- Banco de 16 registros, x0 sin escrituras.
-- Desplazamientos desactivados en la ALU: no deben usarse.
-- MMIO: displays 0x80000000, LEDs 0x80000004, botones 0x80000008.
-- Los displays reciben dos dígitos hexadecimales: el juego deberá convertir sus tiempos a decimal antes de mostrarlos.
-- Contador de ciclos incorporado en 0x8000000c, con captura de la última escritura de LEDs en 0x80000010. Ver `docs/contador.md`.
-- Síntesis de la base original con blink: 888 LUT4 y 12 bloques RAM; ubicación y ruteo completados. Esto no garantiza el espacio ni la temporización del juego final.
-- Prueba física completada por el usuario: programación con VERIFY OK; displays 00 y cada botón controla su LED mientras está presionado. iceprog funciona desde la terminal del usuario, aunque no pudo abrir el dispositivo desde la sesión de Codex.
+## 2. Funcionamiento del juego
 
-## Siguiente etapa
+El juego utiliza los cuatro botones, los cuatro LED y los dos displays de siete segmentos de la Go Board.
 
-Botones/LEDs verificados físicamente. Assembler propio con diez pruebas aprobadas y salida idéntica al ejemplo original. Contador y prueba de espera simulados. Siguiente: comprobar los tres segundos físicamente, luego implementar el juego, diez rondas y promedio.
+Al iniciar, los displays muestran `AA` y esperan que el jugador presione y suelte un botón.
 
-## Prueba del contador
+En cada ronda:
 
-`make test-counter` y `make test-soc` verifican el contador y el programa en simulación. `make build-timer` construye la prueba de tres segundos; `make program-timer` la carga en la placa. Alterna LEDs encendidos/display 03 y LEDs apagados/display 00, cada fase de al menos tres segundos. La comprobación física de esta prueba fue completada por el usuario: alternancia 03/00 y LEDs correcta.
+1. Los cuatro LED se encienden durante aproximadamente tres segundos.
+2. Se selecciona uno de los cuatro LED como objetivo.
+3. El jugador debe presionar el botón correspondiente.
+4. Se mide y muestra el tiempo de reacción.
+5. Una respuesta incorrecta no cuenta como acierto y permite repetir la ronda.
 
-## Juego de reflejos
+El juego termina después de diez aciertos y muestra el promedio de los tiempos de reacción. La secuencia `AA` anuncia la presentación del promedio final.
 
-`make build-game` compila el juego y `make program-game` lo programa. Al inicio aparece AA: presionar y soltar un botón. Después de diez aciertos, AA anuncia el promedio final. Ver `docs/juego.md` para controles, unidades, registros, pruebas y la decisión añadida de timeout a los diez segundos. `make test-game` verifica el juego completo en simulación acelerada.
+Se incorporó además un límite de respuesta de diez segundos (*timeout*).
 
-## Frecuencia actual
+## 3. Arquitectura
 
-La placa entrega25MHz y el SoC usa3,125MHz mediante un divisor por ocho. El contador a esta frecuencia fue comprobado físicamente; el juego completo aún requiere prueba física. Las constantes de espera, décimas y límite fueron recalculadas; `make test` comprueba su consistencia. Ver `docs/diagnostico.md` para las pruebas fallidas y la evidencia disponible; la causa exacta del fallo a25MHz todavía no está confirmada.
+El sistema utiliza Pochoco SoC con el procesador Espino, una memoria para el programa Assembly y periféricos mapeados en memoria.
+
+### Mapa de memoria
+
+| Dirección | Función |
+|---|---|
+| `0x80000000` | Displays de siete segmentos |
+| `0x80000004` | LED |
+| `0x80000008` | Botones |
+| `0x8000000C` | Contador de ciclos |
+| `0x80000010` | Captura del contador asociada a la última escritura de LED |
+
+El programa principal está en `sw/game.s`. El ensamblador propio está en `tools/assembler.py`.
+
+Los detalles de la arquitectura, el contador y el funcionamiento del juego se encuentran en `docs/`.
+
+## 4. Reloj y medición del tiempo
+
+La Go Board proporciona un reloj de 25 MHz. La implementación funcional utiliza un divisor por ocho, de modo que el SoC funciona a 3,125 MHz.
+
+El contador permite medir intervalos de tiempo mediante diferencias entre valores de ciclos. Las constantes del juego fueron ajustadas a la frecuencia utilizada.
+
+La implementación a 3,125 MHz fue comprobada físicamente. La causa exacta de los problemas observados anteriormente a 25 MHz no está confirmada; las pruebas históricas se documentan en `docs/diagnostico.md`.
+
+## 5. Compilación y programación
+
+Los siguientes comandos se ejecutan desde la raíz del repositorio.
+
+### Compilar el juego
+
+```bash
+make build-game
+```
+
+### Programar la FPGA
+
+Con la Go Board conectada al computador:
+
+```bash
+make program-game
+```
+
+El comando construye lo necesario y utiliza `iceprog` para programar la placa.
+
+### Ejecutar las pruebas
+
+```bash
+make test
+```
+
+Para ejecutar las pruebas específicas del juego:
+
+```bash
+make test-game
+```
+
+También existen objetivos de compilación y prueba para los módulos de diagnóstico, el contador y los programas de ejemplo.
+
+**Importante:** `make` a secas utiliza el programa de prueba predeterminado. Para compilar o cargar el juego debe utilizarse explícitamente `build-game` o `program-game`.
+
+## 6. Ensamblador
+
+El proyecto incluye un ensamblador propio en Python para el subconjunto de instrucciones utilizado por Espino.
+
+El programa principal del juego se encuentra en `sw/game.s` y su representación en código máquina en `sw/game.hex`.
+
+La sintaxis admitida, las restricciones y los ejemplos están documentados en `docs/assembler.md`.
+
+## 7. Verificación
+
+Se realizaron pruebas de simulación y pruebas físicas sobre la Go Board.
+
+Entre las funcionalidades comprobadas físicamente se encuentran:
+
+- Programación de la FPGA mediante `iceprog`, con verificación correcta.
+- Lectura de los botones y control de los LED.
+- Funcionamiento del contador y de las esperas temporizadas.
+- Inicio de partida y reinicio.
+- Secuencia completa de diez aciertos.
+- Medición y visualización de los tiempos de reacción.
+- Cálculo y visualización del promedio final.
+- Manejo de respuestas incorrectas.
+- Funcionamiento del timeout.
+
+Las pruebas automatizadas y sus archivos se encuentran en `tests/`.
+
+## 8. Organización del repositorio
+
+| Ruta | Contenido |
+|---|---|
+| `rtl/` | Procesador Espino, SoC, periféricos y módulos Verilog |
+| `sw/` | Programas Assembly y archivos hexadecimales |
+| `tools/` | Ensamblador propio en Python |
+| `tests/` | Pruebas y bancos de simulación |
+| `docs/` | Documentación técnica y diagnósticos |
+| `Makefile` | Compilación, pruebas y programación |
+| `goboard.pcf` | Restricciones de pines de la FPGA |
+
+Los archivos temporales de síntesis y los bitstreams están excluidos del repositorio mediante `.gitignore`. Pueden regenerarse a partir del código fuente y las herramientas de compilación.
+
+## 9. Documentación adicional
+
+- `docs/assembler.md`: funcionamiento del ensamblador.
+- `docs/contador.md`: contador de ciclos y medición del tiempo.
+- `docs/juego.md`: funcionamiento, registros y pruebas del juego.
+- `docs/diagnostico.md`: diagnóstico y pruebas históricas.
+- `README_UPSTREAM.md`: documentación del proyecto original.
